@@ -40,6 +40,12 @@ class APIClient(QWidget):
         self.headers_input = QTextEdit()
         layout.addWidget(self.headers_input)
 
+        # Data payload field
+        self.data_input_label = QLabel("Data Payload:")
+        layout.addWidget(self.data_input_label)
+        self.data_input = QTextEdit()
+        layout.addWidget(self.data_input)
+
         # Button to trigger API call
         self.call_button = QPushButton("Call API")
         self.call_button.clicked.connect(self.call_api)
@@ -63,6 +69,7 @@ class APIClient(QWidget):
         curl_args = shlex.split(curl_command)
         url = ""
         headers = {}
+        data = ""
 
         for i in range(len(curl_args)):
             if curl_args[i] == '-H':
@@ -81,6 +88,7 @@ class APIClient(QWidget):
 
         self.url_input.setText(url)
         self.headers_input.setPlainText("\n".join([f"{k}: {v}" for k, v in headers.items()]))
+        self.data_input.setPlainText(data)
 
     def call_api(self):
         url = self.url_input.text()
@@ -90,8 +98,11 @@ class APIClient(QWidget):
             if len(parts) == 2:
                 headers[parts[0].strip()] = parts[1].strip()
 
+        data = self.data_input.toPlainText()
+
         self.worker.set_url(url)
         self.worker.set_headers(headers)
+        self.worker.set_data(data)
         self.worker.start()
 
     def update_text(self, text):
@@ -105,6 +116,7 @@ class Worker(QThread):
         super().__init__()
         self.url = ""
         self.headers = {}
+        self.data = ""
 
     def set_url(self, url):
         self.url = url
@@ -112,18 +124,24 @@ class Worker(QThread):
     def set_headers(self, headers):
         self.headers = headers
 
+    def set_data(self, data):
+        self.data = data
+
     def run(self):
         try:
-            response = requests.get(self.url, headers=self.headers)
-            if response.status_code == 200:
+            response = requests.post(self.url, headers=self.headers, data=self.data)
+            response_text = response.text if response.text else "No response body."
+            if response.status_code == 201:
+                self.text_updated.emit(f"Success: Resource created successfully. Status Code: {response.status_code}\nResponse:\n{response_text}")
+            elif response.status_code == 200:
                 if 'application/json' in response.headers.get('content-type', ''):
-                    json_data = json.loads(response.text)
+                    json_data = json.loads(response_text)
                     formatted_json = json.dumps(json_data, indent=4)
-                    self.text_updated.emit(formatted_json)
+                    self.text_updated.emit(f"Response:\n{formatted_json}")
                 else:
-                    self.text_updated.emit(response.text)
+                    self.text_updated.emit(f"Response:\n{response_text}")
             else:
-                self.text_updated.emit(f"Error: {response.status_code}")
+                self.text_updated.emit(f"Error: {response.status_code}\nResponse:\n{response_text}")
         except requests.RequestException as e:
             self.text_updated.emit(f"Error: {str(e)}")
 
